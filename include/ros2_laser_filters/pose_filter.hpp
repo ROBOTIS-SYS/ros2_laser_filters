@@ -16,6 +16,9 @@
 
 #ifndef POSE_FILTER_HPP_
 #define POSE_FILTER_HPP_
+
+#include <queue>
+
 #include <ros2_laser_filters/filter_base.hpp>
 
 #include <laser_geometry/laser_geometry.hpp>
@@ -26,7 +29,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 
-#include <tf2_ros/geometry_msgs.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2/transform_datatypes.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -47,27 +50,25 @@ public:
   bool push_to_imu_buffer(const sensor_msgs::msg::Imu & imu_buff);
   bool push_to_odom_buffer(const nav_msgs::msg::Odometry::SharedPtr & odom_buff);
 
-
 private:
   std::unique_ptr<PosePredictorBase> pose_buffer_;
-
 };
 
 class PosePredictorBase
 {
 public:
   PosePredictorBase();
-  ~PosePredictorBase() = delete;
+  virtual ~PosePredictorBase();
 
-  void update_buffer_with_interpolation(std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
-
-  inline void add_pose(geometry_msgs::msg::TransformStamped in) {pose_buff_.push_back(in);}
+  void update_buffer_with_interpolation(
+    const sensor_msgs::msg::LaserScan& input_scan,
+    std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
 
 private:
-  void free_unused_buffer(); // used in update_buffer_with interpolation
+  inline void add_pose(geometry_msgs::msg::TransformStamped in) {pose_buff_.push(in);}
 
-  std::vector<geometry_msgs::msg::TransformStamped> pose_buff_;
-}
+  std::queue<geometry_msgs::msg::TransformStamped> pose_buff_;
 
+};
 }  // namespace laser_filters
 #endif
