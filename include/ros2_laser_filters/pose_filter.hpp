@@ -30,8 +30,10 @@
 #include <sensor_msgs/msg/imu.hpp>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_ros/transform_listener.h>
+
 
 namespace laser_filters {
 
@@ -47,28 +49,63 @@ public:
     const sensor_msgs::msg::LaserScan& input_scan,
     sensor_msgs::msg::LaserScan& filtered_scan);
 
-  bool push_to_imu_buffer(const sensor_msgs::msg::Imu & imu_buff);
-  bool push_to_odom_buffer(const nav_msgs::msg::Odometry::SharedPtr & odom_buff);
+  bool push_pose(const nav_msgs::msg::Odometry & odom);
 
 private:
-  std::unique_ptr<PosePredictorBase> pose_buffer_;
-};
 
+  std::unique_ptr<PosePredictorBase> pose_buffer_;
+  laser_geometry::LaserProjection projector_;
+
+};
 class PosePredictorBase
 {
 public:
   PosePredictorBase();
   virtual ~PosePredictorBase();
 
-  void update_buffer_with_interpolation(
-    const sensor_msgs::msg::LaserScan& input_scan,
+  void predict(
+    const std::vector<rclcpp::Time> & scanning_times,
+    std::vector<geometry_msgs::msg::TransformStamped> & poses_out);
+
+  inline void add_pose(geometry_msgs::msg::TransformStamped in) {pose_buff_.push(in);}
+
+private:
+  /**
+   * @brief Set the pose of the last vector as reference frame.
+   * Then, express every pose in the vector to a reference frame.
+   *
+   * @param pose_in
+   * @param pose_out
+   */
+  void backpropagate_pose(
+    const std::vector<geometry_msgs::msg::TransformStamped> & pose_in,
+    std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
+
+  /**
+   * @brief predict the pose on time "time_des" using the linear interpolation of odom_a and odom_b
+   *  and output the predicted pose to "odom_out"
+   *
+   * @param time_des
+   * @param odom_a
+   * @param odom_b
+   * @param odom_out
+   */
+  void interpolate_pose(
+    const rclcpp::Time & time_des,
+    const geometry_msgs::msg::TransformStamped & odom_a,
+    const geometry_msgs::msg::TransformStamped & odom_b,
+    geometry_msgs::msg::TransformStamped & odom_out);
+
+  void interpolate_poses(
+    const std::vector<rclcpp::Time> & time_des,
+    const std::vector<geometry_msgs::msg::TransformStamped> & pose_in,
+    std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
+
+  void pop_and_sort_buffer(rclcpp::Time latest,
     std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
 
 private:
-  inline void add_pose(geometry_msgs::msg::TransformStamped in) {pose_buff_.push(in);}
-
   std::queue<geometry_msgs::msg::TransformStamped> pose_buff_;
-
 };
 }  // namespace laser_filters
 #endif
