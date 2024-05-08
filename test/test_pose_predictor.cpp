@@ -2,6 +2,10 @@
 #include <rclcpp/rclcpp.hpp>
 #include <iostream>
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <tf2_eigen/tf2_eigen.h>
+
 int main (int argc, char * argv[]) {
 
   std::cout << "\n[INFO] =========== start test of class PosePredictorBase =========== \n"
@@ -48,18 +52,32 @@ int main (int argc, char * argv[]) {
 
   odom_set.push_back(first_pose);
 
+  Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
+
   for (size_t test_no = 0; test_no < test_size - 1; test_no++) {
+    Eigen::Isometry3d pose_increment = Eigen::Isometry3d::Identity();
+    pose_increment.translate(Eigen::Vector3d(2 * pt_plus, 0, - pt_plus));
+    auto axis = Eigen::Vector3d(test_no/test_size, 1, 1);
+    axis.normalize();
+    pose_increment.rotate(Eigen::AngleAxisd(0.628, axis));
+
+    pose = pose * pose_increment;
+
     double duration_sec = DUE_OFFSET + DUE_MAG * std::sin(M_2_PI * test_no / 50);
 
     geometry_msgs::msg::TransformStamped odom = odom_set.back();
     odom.header.stamp = rclcpp::Time(odom.header.stamp) +
       rclcpp::Duration::from_seconds(duration_sec);
 
-    odom.transform.translation.x += 2 * pt_plus;
-    odom.transform.translation.z -= pt_plus;
-    odom_set.push_back(odom);
+    geometry_msgs::msg::Pose pose_msg = tf2::toMsg(pose);
+    odom.transform.rotation = pose_msg.orientation;
+    odom.transform.translation.x = pose_msg.position.x;
+    odom.transform.translation.y = pose_msg.position.y;
+    odom.transform.translation.z = pose_msg.position.z;
 
+    odom_set.push_back(odom);
   }
+
 
 
   std::unique_ptr<laser_filters::PosePredictorBase> predictor;
@@ -73,14 +91,14 @@ int main (int argc, char * argv[]) {
   //   std::cout << "]\n";
   // }
 
-  // {
-  //   std::cout << "[INFO] pose in odom_set : " << std::endl;
-  //   for (auto it = odom_set.begin(); it != odom_set.end(); it++) {
-  //     std::cout << "[" << it->transform.translation.x << ", " <<
-  //       it->transform.translation.y << ", " <<
-  //       it->transform.translation.z << "]\n";
-  //   }
-  // }
+  {
+    std::cout << "[INFO] pose in odom_set : " << std::endl;
+    for (auto it = odom_set.begin(); it != odom_set.end(); it++) {
+      std::cout << "[" << it->transform.translation.x << ", " <<
+        it->transform.translation.y << ", " <<
+        it->transform.translation.z << "]\n";
+    }
+  }
 
 
   // create scan time stamp
@@ -249,6 +267,75 @@ int main (int argc, char * argv[]) {
   std::cout << "\n[INFO] =========== done testing interpolate_poses() =========== \n"
     << std::endl;
 
+  std::cout << "\n[INFO] ========== start testing backpropagate_pose() =========== \n" << std::endl;
 
+  // create fixture
+
+  std::vector<geometry_msgs::msg::TransformStamped> pose_backprop;
+  predictor->backpropagate_pose(pose_intpl, pose_backprop);
+
+  std::vector<geometry_msgs::msg::Pose> eval_poses;
+  Eigen::Isometry3d back_pose;
+  geometry_msgs::msg::Pose back_pose_msg;
+  back_pose_msg.orientation = pose_intpl.back().transform.rotation;
+  back_pose_msg.position.x = pose_intpl.back().transform.translation.x;
+  back_pose_msg.position.y = pose_intpl.back().transform.translation.y;
+  back_pose_msg.position.z = pose_intpl.back().transform.translation.z;
+  tf2::fromMsg(back_pose_msg, back_pose);
+
+  std::cout << "pose_backprop size: " << pose_backprop.size() << std::endl;
+  for (size_t idx = 0; idx < pose_backprop.size(); idx++) {
+    Eigen::Isometry3d prop_pose;
+    geometry_msgs::msg::Pose conversion_pose;
+    conversion_pose.orientation = pose_backprop[idx].transform.rotation;
+    conversion_pose.position.x = pose_backprop[idx].transform.translation.x;
+    conversion_pose.position.y = pose_backprop[idx].transform.translation.y;
+    conversion_pose.position.z = pose_backprop[idx].transform.translation.z;
+    tf2::fromMsg(conversion_pose, prop_pose);
+    geometry_msgs::msg::Pose eval_pose = tf2::toMsg(back_pose * prop_pose);
+    eval_poses.push_back(eval_pose);
+  }
+
+  is_error = false;
+  for (size_t idx = 0; idx < eval_poses.size(); idx++) {
+    auto p = pose_intpl[idx];
+    auto e = eval_poses[idx];
+
+    double errors[3];
+    errors[0] = p.transform.translation.x - e.position.x;
+    errors[1] = p.transform.translation.y - e.position.y;
+    errors[2] = p.transform.translation.z - e.position.z;
+    errors[3] = p.transform.rotation.x - e.orientation.x;
+    errors[4] = p.transform.rotation.y - e.orientation.y;
+    errors[5] = p.transform.rotation.z - e.orientation.z;
+    errors[6] = p.transform.rotation.w - e.orientation.w;
+
+    double error = 0;
+    for(int i = 0; i < 7; i++) {
+      error += (errors[i] * errors[i]);
+    }
+    if (error > 0.000000001) {
+      std::cout << "error :" << error << std::endl;
+      is_error = true;
+    }
+  }
+
+  if (is_error) {
+    std::cout << "[FAILED] backpropagate_pose(): wrong position value"
+        << std::endl;
+  } else {
+    std::cout << "[SUCCESS] backpropagate_pose(): proper position value"
+        << std::endl;
+  }
+
+  // for (size_t idx = 0; idx < eval_poses.size(); idx++) {
+  //   auto p = eval_poses[idx];
+  //   std::cout << "xyz : [" << p.position.x << ", " << p.position.y << ", " << p.position.z << "]\n";
+  // }
+  // std::cout << "[INFO]: interpolated position" << std::endl;
+  // for (size_t idx = 0; idx < eval_poses.size(); idx++) {
+  //   auto p = pose_intpl[idx].transform.translation;
+  //   std::cout << "xyz : [" << p.x << ", " << p.y << ", " << p.z << "]\n";
+  // }
   return 0;
 }

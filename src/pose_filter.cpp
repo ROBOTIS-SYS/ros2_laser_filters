@@ -190,6 +190,8 @@ void laser_filters::PosePredictorBase::backpropagate_pose(
     // Store the relative transform in pose_out
     pose_temp.push_back(relative_transform);
   }
+  // return value
+  pose_out = pose_temp;
 }
 
 void laser_filters::PosePredictorBase::interpolate_pose(
