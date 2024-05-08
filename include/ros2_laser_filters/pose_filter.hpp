@@ -17,7 +17,7 @@
 #ifndef POSE_FILTER_HPP_
 #define POSE_FILTER_HPP_
 
-#include <queue>
+#include <deque>
 
 #include <ros2_laser_filters/filter_base.hpp>
 
@@ -37,39 +37,19 @@
 
 namespace laser_filters {
 
-class PoseFilter : public filters::FilterBase<sensor_msgs::msg::LaserScan>
-{
-public:
-
-  PoseFilter();
-
-  bool configure();
-
-  bool update(
-    const sensor_msgs::msg::LaserScan& input_scan,
-    sensor_msgs::msg::LaserScan& filtered_scan);
-
-  bool push_pose(const nav_msgs::msg::Odometry & odom);
-
-private:
-
-  std::unique_ptr<PosePredictorBase> pose_buffer_;
-  laser_geometry::LaserProjection projector_;
-
-};
 class PosePredictorBase
 {
 public:
   PosePredictorBase();
-  virtual ~PosePredictorBase();
+  ~PosePredictorBase();
 
   void predict(
     const std::vector<rclcpp::Time> & scanning_times,
     std::vector<geometry_msgs::msg::TransformStamped> & poses_out);
 
-  inline void add_pose(geometry_msgs::msg::TransformStamped in) {pose_buff_.push(in);}
+  void add_pose(geometry_msgs::msg::TransformStamped in);
 
-private:
+public:
   /**
    * @brief Set the pose of the last vector as reference frame.
    * Then, express every pose in the vector to a reference frame.
@@ -96,16 +76,51 @@ private:
     const geometry_msgs::msg::TransformStamped & odom_b,
     geometry_msgs::msg::TransformStamped & odom_out);
 
-  void interpolate_poses(
+  bool interpolate_poses(
     const std::vector<rclcpp::Time> & time_des,
     const std::vector<geometry_msgs::msg::TransformStamped> & pose_in,
     std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
 
-  void pop_and_sort_buffer(rclcpp::Time latest,
+  void pop_buffer(rclcpp::Time latest,
     std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
 
+  inline std::deque<geometry_msgs::msg::TransformStamped> get_pose_buffer() { return pose_buff_;}
 private:
-  std::queue<geometry_msgs::msg::TransformStamped> pose_buff_;
+  std::deque<geometry_msgs::msg::TransformStamped> pose_buff_;
+};
+
+class PoseFilter : public filters::FilterBase<sensor_msgs::msg::LaserScan>
+{
+public:
+
+  PoseFilter();
+  ~PoseFilter();
+
+  bool configure();
+
+  bool update(
+    const sensor_msgs::msg::LaserScan& input_scan,
+    sensor_msgs::msg::LaserScan& filtered_scan);
+
+  bool push_pose(const nav_msgs::msg::Odometry & odom);
+
+private:
+
+  bool create_in_scan_stamp(
+    const sensor_msgs::msg::LaserScan& input_scan,
+    std::vector<rclcpp::Time> & stamp_out,
+    std::vector<int> & scan_idx,
+    int num_segement_in_scan = -1);
+
+  bool merge_pose_segment(
+    const std::vector<int> & scan_idx,
+    const std::vector<geometry_msgs::msg::TransformStamped> & bp_poses,
+    const sensor_msgs::msg::LaserScan & input_scan,
+    sensor_msgs::msg::LaserScan & output_scan);
+
+  std::unique_ptr<PosePredictorBase> pose_buffer_;
+  laser_geometry::LaserProjection projector_;
+  int num_segment_in_scan_ = 5;
 };
 }  // namespace laser_filters
 #endif

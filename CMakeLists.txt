@@ -28,6 +28,7 @@ add_executable(scan_filter_chain
   src/scan_filter_chain.cpp
   src/box_filter.cpp
   src/radius_search_filter.cpp
+  src/pose_filter.cpp
 )
 target_include_directories(scan_filter_chain PRIVATE
   "include"
@@ -55,6 +56,36 @@ if(BUILD_TESTING)
   # uncomment the line when this package is not in a git repo
   #set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+endif()
+
+if(DYNAMIC_TESTING)
+
+  # viwer vtk dependencies
+  # find_package(VTK 9.0 REQUIRED)
+  # add_library(VTK_VIEWER_LIB)
+  # target_link_libraries(VTK_VIEWER_LIB
+  # ${VTK_LIBRARIES})
+
+  # target_include_directories(VTK_VIEWER_3D_LIB PUBLIC
+  # ${CMAKE_SOURCE_DIR}/include
+  # ${CMAKE_SOURCE_DIR}/src)
+
+  add_executable(test_pose_predictor test/test_pose_predictor.cpp src/pose_filter.cpp)
+  # target_link_libraries(test_pose_predictor PUBLIC VTK_VIEWER_3D_LIB)
+  # vtk_module_autoinit(TARGETS test_pose_predictor MODULES ${VTK_LIBRARIES} )
+  target_compile_options(test_pose_predictor PRIVATE -g)
+  # scan_filter_chain
+  include_directories(test_pose_predictor PRIVATE
+  "include"
+  )
+
+  ament_target_dependencies(test_pose_predictor
+  angles
+  laser_geometry
+  rclcpp
+  sensor_msgs
+  tf2_ros
+  )
 endif()
 
 ament_package()

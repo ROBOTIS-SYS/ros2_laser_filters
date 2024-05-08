@@ -1,10 +1,10 @@
 /*
  * Copyright (c) 2008, Willow Garage, Inc.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  *     * Redistributions of source code must retain the above copyright
  *       notice, this list of conditions and the following disclaimer.
  *     * Redistributions in binary form must reproduce the above copyright
@@ -13,7 +13,7 @@
  *     * Neither the name of the Willow Garage, Inc. nor the names of its
  *       contributors may be used to endorse or promote products derived from
  *       this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -43,6 +43,7 @@
 #include "ros2_laser_filters/scan_shadows_filter.hpp"
 #include "ros2_laser_filters/box_filter.hpp"
 #include "ros2_laser_filters/radius_search_filter.hpp"
+#include "ros2_laser_filters/pose_filter.hpp"
 
 
 class ScanToScanFilterChain : public rclcpp::Node
@@ -61,7 +62,8 @@ protected:
   rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr output_pub_;
 
   std::vector<std::shared_ptr<filters::FilterBase<sensor_msgs::msg::LaserScan>>> filters_;
-
+  // TODO erase
+  std::shared_ptr<filters::FilterBase<sensor_msgs::msg::LaserScan>> test_filter_;
 
 public:
   // Constructor
@@ -132,6 +134,7 @@ public:
         get_node_logging_interface(),
         get_node_parameters_interface());
 
+    test_filter_ = std::make_shared<laser_filters::PoseFilter>();
     // Configure filter chain
     // params
     //  tf_message_filter_target_frame
@@ -147,12 +150,12 @@ public:
     tf_filter_->registerCallback(
         std::bind(&ScanToScanFilterChain::callback, this, std::placeholders::_1));
     // }
-    // else 
+    // else
     // {
     //   // Pass through if no tf_message_filter_target_frame
     //   scan_sub_.registerCallback(boost::bind(&ScanToScanFilterChain::callback, this, _1));
     // }
-    
+
     // Advertise output
     // output_pub_ = nh_.advertise<sensor_msgs::LaserScan>("scan_filtered", 1000);
 

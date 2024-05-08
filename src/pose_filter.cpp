@@ -18,7 +18,9 @@
 
 #include <algorithm>
 
-laser_filters::PoseFilter::PoseFilter() {}
+laser_filters::PoseFilter::PoseFilter() {
+  pose_buffer_ = std::make_unique<PosePredictorBase>();
+}
 
 laser_filters::PoseFilter::~PoseFilter() {}
 
@@ -37,10 +39,64 @@ bool laser_filters::PoseFilter::update(
   const sensor_msgs::msg::LaserScan& input_scan,
   sensor_msgs::msg::LaserScan &output_scan)
 {
+
+  std::vector<rclcpp::Time> stamps;
+  std::vector<int> idx;
+
+  create_in_scan_stamp(input_scan, stamps, idx);
+  input_scan.time_increment;
+
+  std::vector<geometry_msgs::msg::TransformStamped> pose_predict;
+
+  pose_buffer_->predict(stamps, pose_predict);
+
+  merge_pose_segment(idx, pose_predict, input_scan, output_scan);
+
+  return true;
+}
+
+bool laser_filters::PoseFilter::create_in_scan_stamp(
+  const sensor_msgs::msg::LaserScan& input_scan,
+  std::vector<rclcpp::Time> & stamp_out,
+  std::vector<int> & scan_idx,
+  int num_segment_in_scan)
+{
+  // TODO: need revision
+  if (num_segment_in_scan < 1) { num_segment_in_scan = this->num_segment_in_scan_; }
+
+  std::vector<rclcpp::Time> stamps;
+  std::vector<int> idx;
+  stamps.reserve(num_segment_in_scan);
+
+  int num_pt_in_segment = input_scan.ranges.size() / num_segment_in_scan;
+  float duration_btw_segment = input_scan.time_increment * num_pt_in_segment;
+
+  for (int segment_no = 0; segment_no < num_segment_in_scan; segment_no++) {
+    float duration = duration_btw_segment * (num_segment_in_scan - segment_no - 1);
+
+    rclcpp::Duration time_gap  = rclcpp::Duration::from_seconds(duration);
+    rclcpp::Time stamp = rclcpp::Time(input_scan.scan_time) - time_gap;
+    stamps.push_back(stamp);
+    idx.push_back(segment_no * num_pt_in_segment);
+  }
+
+  stamp_out = stamps;
+  scan_idx = idx;
+  return true;
+}
+
+bool laser_filters::PoseFilter::merge_pose_segment(
+  const std::vector<int> & scan_idx,
+  const std::vector<geometry_msgs::msg::TransformStamped> & bp_poses,
+  const sensor_msgs::msg::LaserScan & input_scan,
+  sensor_msgs::msg::LaserScan & output_scan)
+{
+  // TODO
   return true;
 }
 
 laser_filters::PosePredictorBase::PosePredictorBase() {}
+laser_filters::PosePredictorBase::~PosePredictorBase() {}
 
 void laser_filters::PosePredictorBase::predict(
   const std::vector<rclcpp::Time> & scanning_times,
@@ -48,30 +104,48 @@ void laser_filters::PosePredictorBase::predict(
 {
   std::vector<geometry_msgs::msg::TransformStamped> poses_sort;
 
-  pop_and_sort_buffer(scanning_times.back(), poses_sort);
+  pop_buffer(scanning_times.back(), poses_sort);
 
   std::vector<geometry_msgs::msg::TransformStamped> poses_interpol;
 
   interpolate_poses(scanning_times, poses_sort, poses_interpol);
+
   backpropagate_pose(poses_interpol, poses_out);
+}
+
+void laser_filters::PosePredictorBase::add_pose(geometry_msgs::msg::TransformStamped in)
+{
+  if (pose_buff_.empty()) {
+    pose_buff_.push_back(in);
+  } else if (rclcpp::Time(in.header.stamp) > pose_buff_.back().header.stamp)  {
+    pose_buff_.push_back(in);
+  } else {
+    auto it = pose_buff_.rbegin();
+    while (it != pose_buff_.rend() && rclcpp::Time(it->header.stamp) > in.header.stamp) {
+      ++it;
+    }
+    pose_buff_.insert(it.base(), in);
+  }
+
 }
 
 void laser_filters::PosePredictorBase::backpropagate_pose(
   const std::vector<geometry_msgs::msg::TransformStamped> & pose_in,
   std::vector<geometry_msgs::msg::TransformStamped> & pose_out)
 {
-// Ensure that there are at least two poses in the input vector
+  // Ensure that there are at least two poses in the input vector
   if (pose_in.size() < 2) {
     // Handle the case where there are insufficient poses
     // (e.g., throw an exception or return an error code)
     return;
   }
+  std::vector<geometry_msgs::msg::TransformStamped> pose_temp;
 
   // Set the last pose as the reference frame
   const auto& reference_pose = pose_in.back();
 
   // Initialize the output vector with the same size as pose_in
-  pose_out.resize(pose_in.size());
+  pose_temp.reserve(pose_in.size());
 
   // Iterate through each pose in pose_in
   for (size_t i = 0; i < pose_in.size(); ++i) {
@@ -114,7 +188,7 @@ void laser_filters::PosePredictorBase::backpropagate_pose(
     relative_transform.header.frame_id = pose_in.back().child_frame_id; // Set your desired frame ID
 
     // Store the relative transform in pose_out
-    pose_out[i] = relative_transform;
+    pose_temp.push_back(relative_transform);
   }
 }
 
@@ -162,32 +236,46 @@ void laser_filters::PosePredictorBase::interpolate_pose(
   odom_out.header.frame_id = odom_b.header.frame_id;
   odom_out.header.stamp = time_des;
 
-  // You can add your implementation here
+  // You can add your implementation here.
 }
 
-void laser_filters::PosePredictorBase::interpolate_poses(
+bool laser_filters::PosePredictorBase::interpolate_poses(
   const std::vector<rclcpp::Time> & time_des,
   const std::vector<geometry_msgs::msg::TransformStamped> & pose_in,
   std::vector<geometry_msgs::msg::TransformStamped> & pose_out)
 {
+  // pose_in의 길이가 2 이하일 경우 예외처리
+  if (time_des.empty() || pose_in.empty()) { return false; }
 
-  std::vector<geometry_msgs::msg::TransformStamped> pose_vec;
+  std::vector<geometry_msgs::msg::TransformStamped> pose_vec; // output container
   pose_vec.reserve(time_des.size());
 
-  // TODO: pose_in의 길이가 1이하일 경우 예외처리 필수
-  auto pit = ++(pose_in.begin());
-  for (auto it = time_des.begin(); it != time_des.end(); it++) {
-    for(; pit != pose_in.end(); pit++) {
-      if (*it < pit->header.stamp) { break; }
+  if (pose_in.size() < 2) {  // cannot interpolate, need at least two poses
+    for (auto tit = time_des.begin(); tit != time_des.end(); tit++) {
+      geometry_msgs::msg::TransformStamped t_in = pose_in.front();
+      t_in.header.stamp = *tit;
+      pose_vec.push_back(t_in);
     }
+    pose_out = pose_vec;
+    return true;
+  }
+
+  for (auto tit = time_des.begin(); tit != time_des.end(); tit++) {
+    auto pit = ++(pose_in.begin());
+    for(; pit != pose_in.end(); pit++) {
+      if (*tit < pit->header.stamp) { break; }
+    }
+    if (pit == pose_in.end()) { pit--; }
     geometry_msgs::msg::TransformStamped pose_interpl;
-    interpolate_pose(*it, *(--pit), *pit, pose_interpl);
+    interpolate_pose(*tit, *(pit - 1), *pit, pose_interpl);
     pose_vec.push_back(pose_interpl);
   }
   pose_out = pose_vec;
+
+  return true;
 }
 
-void laser_filters::PosePredictorBase::pop_and_sort_buffer(rclcpp::Time latest,
+void laser_filters::PosePredictorBase::pop_buffer(rclcpp::Time latest,
   std::vector<geometry_msgs::msg::TransformStamped> & pose_out)
 {
   std::vector<geometry_msgs::msg::TransformStamped> pose_vec;
@@ -196,24 +284,13 @@ void laser_filters::PosePredictorBase::pop_and_sort_buffer(rclcpp::Time latest,
   while(!pose_buff_.empty()) {
     if (latest > pose_buff_.front().header.stamp) {
       pose_vec.push_back(pose_buff_.front());
-      pose_buff_.pop();
+      pose_buff_.pop_front();
     } else {
       break;
     }
   }
-
-  // sort
-  auto time_comp = [](
-    const geometry_msgs::msg::TransformStamped& a,
-    const geometry_msgs::msg::TransformStamped& b)
-    {
-      return rclcpp::Time(a.header.stamp) < rclcpp::Time(b.header.stamp);
-    };
-
-  std::sort(pose_vec.begin(), pose_vec.end(), time_comp);
-
-  if( pose_buff_.empty() && !pose_vec.empty()) {
-    pose_buff_.push(pose_vec.back()); // save the latest
+  if (pose_buff_.empty() && !pose_vec.empty()) {
+    pose_buff_.push_back(pose_vec.back()); // save the latest
   }
 
   pose_out = pose_vec; // output
