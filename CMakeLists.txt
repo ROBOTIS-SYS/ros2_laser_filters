@@ -21,8 +21,14 @@ find_package(tf2_ros REQUIRED)
 find_package(laser_geometry REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(angles REQUIRED)
 
+find_package(Eigen3 REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common io)
+find_package(pcl_conversions REQUIRED)
+
+message(STATUS "PCL: ${PCL_INCLUDE_DIRS}")
 
 add_executable(scan_filter_chain
   src/scan_filter_chain.cpp
@@ -31,14 +37,23 @@ add_executable(scan_filter_chain
   src/pose_filter.cpp
 )
 target_include_directories(scan_filter_chain PRIVATE
+  ${PCL_INCLUDE_DIRS}
   "include"
 )
-ament_target_dependencies(scan_filter_chain
+
+set( dependencies
   angles
   laser_geometry
   rclcpp
   sensor_msgs
+  nav_msgs
   tf2_ros
+  pcl_conversions
+)
+
+target_link_libraries(scan_filter_chain ${PCL_LIBRARIES})
+ament_target_dependencies(scan_filter_chain
+  ${dependencies}
 )
 
 install(TARGETS
@@ -58,7 +73,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-if(DYNAMIC_TESTING)
+if (DYNAMIC_TESTING)
 
   # viwer vtk dependencies
   # find_package(VTK 9.0 REQUIRED)
@@ -73,19 +88,31 @@ if(DYNAMIC_TESTING)
   add_executable(test_pose_predictor test/test_pose_predictor.cpp src/pose_filter.cpp)
   # target_link_libraries(test_pose_predictor PUBLIC VTK_VIEWER_3D_LIB)
   # vtk_module_autoinit(TARGETS test_pose_predictor MODULES ${VTK_LIBRARIES} )
+
   target_compile_options(test_pose_predictor PRIVATE -g)
+
   # scan_filter_chain
   include_directories(test_pose_predictor PRIVATE
   "include"
+  ${PCL_INCLUDE_DIRS})
+
+  target_link_libraries(test_pose_predictor ${PCL_LIBRARIES})
+  ament_target_dependencies(test_pose_predictor
+    ${dependencies}
   )
 
-  ament_target_dependencies(test_pose_predictor
-  angles
-  laser_geometry
-  rclcpp
-  sensor_msgs
-  tf2_ros
-  )
+  # add_executable(test_pose_filter test/test_pose_filter.cpp src/pose_filter.cpp)
+  # target_compile_options(test_pose_filter PRIVATE -g)
+
+  # # scan_filter_chain
+  # include_directories(test_pose_filter PRIVATE
+  # "include"
+  # ${PCL_INCLUDE_DIRS})
+
+  # target_link_libraries(test_pose_filter ${PCL_LIBRARIES})
+  # ament_target_dependencies(test_pose_filter
+  #   ${dependencies}
+  # )
 endif()
 
 ament_package()

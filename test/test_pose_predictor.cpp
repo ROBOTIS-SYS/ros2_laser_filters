@@ -91,14 +91,14 @@ int main (int argc, char * argv[]) {
   //   std::cout << "]\n";
   // }
 
-  {
-    std::cout << "[INFO] pose in odom_set : " << std::endl;
-    for (auto it = odom_set.begin(); it != odom_set.end(); it++) {
-      std::cout << "[" << it->transform.translation.x << ", " <<
-        it->transform.translation.y << ", " <<
-        it->transform.translation.z << "]\n";
-    }
-  }
+  // {
+  //   std::cout << "[INFO] pose in odom_set : " << std::endl;
+  //   for (auto it = odom_set.begin(); it != odom_set.end(); it++) {
+  //     std::cout << "[" << it->transform.translation.x << ", " <<
+  //       it->transform.translation.y << ", " <<
+  //       it->transform.translation.z << "]\n";
+  //   }
+  // }
 
 
   // create scan time stamp
@@ -121,13 +121,11 @@ int main (int argc, char * argv[]) {
 
   }
 
-  std::vector<geometry_msgs::msg::TransformStamped> pose_sort;
-  predictor->pop_buffer(scan_time, pose_sort);
-
-  /*** pop_and_sort_buffer() : report analysis ***/
+  /*** add_pose() : report analysis ***/
 
   // sorting test
   bool is_error = false;
+  auto pose_sort = predictor->get_pose_buffer();
   for (auto it = pose_sort.begin(); it != pose_sort.end() - 1; it++ ) {
     if (rclcpp::Time(it->header.stamp) > (it+1)->header.stamp) {
       std::cout << "[FAILED] pop_buffer(): unordered timestamp" << std::endl;
@@ -143,28 +141,6 @@ int main (int argc, char * argv[]) {
     std::cout << it->header.stamp.sec << ", ";
   }
   std::cout << "]\n";
-
-
-  // timestamp test
-  size_t actual_size = 0;
-  for (auto it = odom_set.begin(); it != odom_set.end(); it++ ) {
-    if (scan_time > it->header.stamp) {
-      actual_size++;
-    }
-  }
-
-  if (pose_sort.size() != actual_size ) {
-    std::cout << "[FAILED] pop_and_sort_buffer(): bad timestamp retrival" << std::endl;
-    std::cout << "[FAILED] pop_and_sort_buffer(): actual_size: " << actual_size << ", queue_size: " << pose_sort.size() << std::endl;
-  } else {
-    std::cout << "[SUCCESS] pop_and_sort_buffer(): proper timestamp retrival" << std::endl;
-  }
-  std::cout << "\n[INFO] =========== done testing add_pose(), pop_buffer() =========== \n"
-    << std::endl;
-
-  std::cout << "\n[INFO] =========== start testing interpolate_poses() =========== \n"
-    << std::endl;
-
 
   int num_div = 5;
   std::vector<rclcpp::Time> scan_dev_stamps;
@@ -201,7 +177,7 @@ int main (int argc, char * argv[]) {
   }
 
   std::vector<geometry_msgs::msg::TransformStamped> pose_intpl;
-  predictor->interpolate_poses(scan_dev_stamps, pose_sort, pose_intpl);
+  predictor->interpolate_poses(scan_dev_stamps, pose_intpl);
 
   is_error = false;
 
@@ -264,8 +240,6 @@ int main (int argc, char * argv[]) {
       << std::endl;
   }
 
-  std::cout << "\n[INFO] =========== done testing interpolate_poses() =========== \n"
-    << std::endl;
 
   std::cout << "\n[INFO] ========== start testing backpropagate_pose() =========== \n" << std::endl;
 
@@ -337,5 +311,20 @@ int main (int argc, char * argv[]) {
   //   auto p = pose_intpl[idx].transform.translation;
   //   std::cout << "xyz : [" << p.x << ", " << p.y << ", " << p.z << "]\n";
   // }
+
+  std::cout << "\n[INFO] ========== start testing pipeline sustainability =========== \n" << std::endl;
+
+  // flush out remaining data
+  rclcpp::Time back_time = rclcpp::Time(predictor->get_pose_buffer().back().header.stamp) +
+    rclcpp::Duration::from_seconds(1.0);
+
+  predictor->pop_buffer(back_time);
+
+  if (!predictor->can_predict()) {
+    std::cout << "\n[FAILED] buffer size is less than 2 \n" << std::endl;
+  }
+
+  std::cout << "predictor size : " << predictor->get_pose_buffer().size() << std::endl;
+
   return 0;
 }

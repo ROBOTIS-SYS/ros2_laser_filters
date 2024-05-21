@@ -33,6 +33,7 @@
 #include <rclcpp/create_publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <message_filters/subscriber.h>
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/message_filter.h>
@@ -55,15 +56,20 @@ protected:
   tf2_ros::TransformListener tf_listener_;
   std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::LaserScan>> scan_sub_;
   std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> tf_filter_;
+
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+
   double tf_filter_tolerance_;
 
   // Components for publishing
   // sensor_msgs::LaserScan msg_;
   rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr output_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_pub_;
 
   std::vector<std::shared_ptr<filters::FilterBase<sensor_msgs::msg::LaserScan>>> filters_;
+
   // TODO erase
-  std::shared_ptr<filters::FilterBase<sensor_msgs::msg::LaserScan>> test_filter_;
+  std::shared_ptr<laser_filters::PoseFilter> pointcloud_filter_;
 
 public:
   // Constructor
@@ -134,7 +140,12 @@ public:
         get_node_logging_interface(),
         get_node_parameters_interface());
 
-    test_filter_ = std::make_shared<laser_filters::PoseFilter>();
+    pointcloud_filter_ = std::make_shared<laser_filters::PoseFilter>();
+
+    odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+      "odom", sensor_qos,
+      std::bind(&ScanToScanFilterChain::odom_callback, this, std::placeholders::_1));
+
     // Configure filter chain
     // params
     //  tf_message_filter_target_frame
@@ -161,6 +172,7 @@ public:
 
     rclcpp::QoS qos(1000);
     output_pub_ = rclcpp::create_publisher<sensor_msgs::msg::LaserScan>(*this, "scan_filtered", qos);
+    point_cloud_pub_ = rclcpp::create_publisher<sensor_msgs::msg::PointCloud2>(*this, "pc_filtered", qos);
   }
 
   // Destructor
@@ -169,7 +181,7 @@ public:
   }
 
   // Callback
-  void callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr & msg_in)
+  void callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr msg_in)
   {
     sensor_msgs::msg::LaserScan filter_input;
     sensor_msgs::msg::LaserScan filter_output(*msg_in);
@@ -185,7 +197,17 @@ public:
         return;
       }
     }
+
+    sensor_msgs::msg::PointCloud2 filtered_pc;
+    pointcloud_filter_->update(filter_output, filtered_pc);
+
     output_pub_->publish(filter_output);
+    point_cloud_pub_->publish(filtered_pc);
+  }
+
+  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg_in)
+  {
+    pointcloud_filter_->add_pose(*msg_in);
   }
 };
 

@@ -31,6 +31,7 @@
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_eigen/tf2_eigen.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -48,6 +49,9 @@ public:
     std::vector<geometry_msgs::msg::TransformStamped> & poses_out);
 
   void add_pose(geometry_msgs::msg::TransformStamped in);
+
+  inline bool can_predict() {return (pose_buff_.size() > 1);}
+  inline bool empty() {return pose_buff_.empty();}
 
 public:
   /**
@@ -78,49 +82,45 @@ public:
 
   bool interpolate_poses(
     const std::vector<rclcpp::Time> & time_des,
-    const std::vector<geometry_msgs::msg::TransformStamped> & pose_in,
     std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
 
-  void pop_buffer(rclcpp::Time latest,
-    std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
+  void pop_buffer(rclcpp::Time latest);
 
   inline std::deque<geometry_msgs::msg::TransformStamped> get_pose_buffer() { return pose_buff_;}
 private:
   std::deque<geometry_msgs::msg::TransformStamped> pose_buff_;
 };
 
-class PoseFilter : public filters::FilterBase<sensor_msgs::msg::LaserScan>
+class PoseFilter
 {
 public:
 
   PoseFilter();
   ~PoseFilter();
 
-  bool configure();
-
   bool update(
     const sensor_msgs::msg::LaserScan& input_scan,
-    sensor_msgs::msg::LaserScan& filtered_scan);
+    sensor_msgs::msg::PointCloud2& filtered_scan);
 
-  bool push_pose(const nav_msgs::msg::Odometry & odom);
+  // bool update(
+  //   const sensor_msgs::msg::LaserScan& input_scan,
+  //   sensor_msgs::msg::LaserScan& filtered_scan);
+
+  inline void add_pose(const geometry_msgs::msg::TransformStamped & msg)
+  { pose_buffer_->add_pose(msg); }
+
+  void add_pose(const nav_msgs::msg::Odometry & msg);
 
 private:
 
-  bool create_in_scan_stamp(
-    const sensor_msgs::msg::LaserScan& input_scan,
-    std::vector<rclcpp::Time> & stamp_out,
-    std::vector<int> & scan_idx,
-    int num_segement_in_scan = -1);
+  bool create_pt_wise_stamp(const sensor_msgs::msg::LaserScan& input_scan,
+    std::vector<rclcpp::Time> & stamp_out);
 
-  bool merge_pose_segment(
-    const std::vector<int> & scan_idx,
-    const std::vector<geometry_msgs::msg::TransformStamped> & bp_poses,
-    const sensor_msgs::msg::LaserScan & input_scan,
-    sensor_msgs::msg::LaserScan & output_scan);
+  sensor_msgs::msg::PointCloud2 pointwize_alignment(
+    const sensor_msgs::msg::LaserScan& input_scan,
+    const std::vector<geometry_msgs::msg::TransformStamped>& pointwise_pose);
 
   std::unique_ptr<PosePredictorBase> pose_buffer_;
-  laser_geometry::LaserProjection projector_;
-  int num_segment_in_scan_ = 5;
 };
 }  // namespace laser_filters
 #endif
