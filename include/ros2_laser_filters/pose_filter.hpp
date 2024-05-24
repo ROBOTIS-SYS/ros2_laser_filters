@@ -30,6 +30,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2/transform_datatypes.h>
@@ -52,6 +53,8 @@ public:
 
   inline bool can_predict() {return (pose_buff_.size() > 1);}
   inline bool empty() {return pose_buff_.empty();}
+
+
 
 public:
   /**
@@ -91,11 +94,16 @@ private:
   std::deque<geometry_msgs::msg::TransformStamped> pose_buff_;
 };
 
+struct PoseFilterParams
+{
+  bool publish_pose_history_ = false;
+};
+
 class PoseFilter
 {
 public:
 
-  PoseFilter();
+  PoseFilter(PoseFilterParams params = PoseFilterParams());
   ~PoseFilter();
 
   bool update(
@@ -109,7 +117,10 @@ public:
   inline void add_pose(const geometry_msgs::msg::TransformStamped & msg)
   { pose_buffer_->add_pose(msg); }
 
+  inline geometry_msgs::msg::PoseArray get_pose_history() {return pose_history_;}
+
   void add_pose(const nav_msgs::msg::Odometry & msg);
+  inline const PoseFilterParams get_params() {return params_;}
 
   std::unique_ptr<PosePredictorBase> pose_buffer_;
 
@@ -122,7 +133,8 @@ private:
     const sensor_msgs::msg::LaserScan& input_scan,
     const std::vector<geometry_msgs::msg::TransformStamped>& pointwise_pose);
 
-
+  geometry_msgs::msg::PoseArray pose_history_;
+  PoseFilterParams params_;
 };
 }  // namespace laser_filters
 #endif

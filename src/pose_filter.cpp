@@ -20,8 +20,9 @@
 
 #include <algorithm>
 
-laser_filters::PoseFilter::PoseFilter()
+laser_filters::PoseFilter::PoseFilter(PoseFilterParams params)
 {
+  params_ = params;
   pose_buffer_ = std::make_unique<PosePredictorBase>();
 }
 
@@ -47,6 +48,20 @@ bool laser_filters::PoseFilter::update(
   std::vector<geometry_msgs::msg::TransformStamped> pose_predict;
 
   pose_buffer_->predict(stamps, pose_predict);
+
+  if (params_.publish_pose_history_) {
+    geometry_msgs::msg::PoseArray pose_history;
+    pose_history.header.stamp = pose_predict.back().header.stamp;
+    pose_history.header.frame_id = "lidar_link";
+    for (auto it = pose_predict.begin(); it != pose_predict.end(); it++) {
+      geometry_msgs::msg::Pose pose_cvt;
+      pose_cvt.position.x = it->transform.translation.x;
+      pose_cvt.position.y = it->transform.translation.y;
+      pose_cvt.position.z = it->transform.translation.z;
+      pose_cvt.orientation = it->transform.rotation;
+      pose_history.poses.push_back(pose_cvt);
+    }
+  }
 
   if (pose_predict.empty()) return false;
 

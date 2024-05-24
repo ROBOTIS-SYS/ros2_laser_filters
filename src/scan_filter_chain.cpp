@@ -65,6 +65,7 @@ protected:
   // sensor_msgs::LaserScan msg_;
   rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr output_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr pose_pub_;
 
   std::vector<std::shared_ptr<filters::FilterBase<sensor_msgs::msg::LaserScan>>> filters_;
 
@@ -139,8 +140,9 @@ public:
         "laser_scan_box_filter",
         get_node_logging_interface(),
         get_node_parameters_interface());
-
-    pointcloud_filter_ = std::make_shared<laser_filters::PoseFilter>();
+    laser_filters::PoseFilterParams params;
+    params.publish_pose_history_ = false;
+    pointcloud_filter_ = std::make_shared<laser_filters::PoseFilter>(params);
 
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
       "odom", sensor_qos,
@@ -173,6 +175,9 @@ public:
     rclcpp::QoS qos(1000);
     output_pub_ = rclcpp::create_publisher<sensor_msgs::msg::LaserScan>(*this, "scan_filtered", qos);
     point_cloud_pub_ = rclcpp::create_publisher<sensor_msgs::msg::PointCloud2>(*this, "pc_filtered", qos);
+    if (pointcloud_filter_->get_params().publish_pose_history_) {
+      pose_pub_ = rclcpp::create_publisher<geometry_msgs::msg::PoseArray>(*this, "pose_history", qos);
+    }
   }
 
   // Destructor
@@ -203,6 +208,9 @@ public:
 
     output_pub_->publish(filter_output);
     point_cloud_pub_->publish(filtered_pc);
+    if (pointcloud_filter_->get_params().publish_pose_history_) {
+      pose_pub_->publish(pointcloud_filter_->get_pose_history());
+    }
   }
 
   void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg_in)
