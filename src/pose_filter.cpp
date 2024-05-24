@@ -48,6 +48,8 @@ bool laser_filters::PoseFilter::update(
 
   pose_buffer_->predict(stamps, pose_predict);
 
+  if (pose_predict.empty()) return false;
+
   output_scan = pointwize_alignment(input_scan, pose_predict);
 
   return true;
@@ -78,7 +80,7 @@ bool laser_filters::PoseFilter::create_pt_wise_stamp(const sensor_msgs::msg::Las
 
   std::vector<rclcpp::Time> stamp_container;
 
-  for (size_t ridx = scan_container.size() - 1; ridx >= 0; ridx--) {
+  for (int ridx = static_cast<int>(scan_container.size()) - 1; ridx >= 0; ridx--) {
     stamp_container.push_back(end_point_stamp - point_due * ridx);
   }
 

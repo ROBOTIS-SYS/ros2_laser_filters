@@ -111,6 +111,8 @@ public:
 
   void add_pose(const nav_msgs::msg::Odometry & msg);
 
+  std::unique_ptr<PosePredictorBase> pose_buffer_;
+
 private:
 
   bool create_pt_wise_stamp(const sensor_msgs::msg::LaserScan& input_scan,
@@ -120,7 +122,7 @@ private:
     const sensor_msgs::msg::LaserScan& input_scan,
     const std::vector<geometry_msgs::msg::TransformStamped>& pointwise_pose);
 
-  std::unique_ptr<PosePredictorBase> pose_buffer_;
+
 };
 }  // namespace laser_filters
 #endif
