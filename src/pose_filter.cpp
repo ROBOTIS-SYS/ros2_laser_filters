@@ -49,8 +49,10 @@ bool laser_filters::PoseFilter::update(
 
   pose_buffer_->predict(stamps, pose_predict);
 
-  if (params_.publish_pose_history_) {
+  if (params_.publish_pose_history_ && !pose_predict.empty()) {
     geometry_msgs::msg::PoseArray pose_history;
+
+    // 취약점
     pose_history.header.stamp = pose_predict.back().header.stamp;
     pose_history.header.frame_id = "lidar_link";
     for (auto it = pose_predict.begin(); it != pose_predict.end(); it++) {
@@ -260,8 +262,8 @@ void laser_filters::PosePredictorBase::interpolate_pose(
   const auto& position_b = odom_b.transform.translation;
   tf2::Quaternion orientation_b(
     odom_b.transform.rotation.x,
-    odom_b.transform.rotation.z,
     odom_b.transform.rotation.y,
+    odom_b.transform.rotation.z,
     odom_b.transform.rotation.w);
 
   rclcpp::Time time_b = odom_b.header.stamp;
