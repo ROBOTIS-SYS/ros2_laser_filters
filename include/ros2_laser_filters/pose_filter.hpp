@@ -77,11 +77,10 @@ public:
    * @param odom_b
    * @param odom_out
    */
-  void interpolate_pose(
+  geometry_msgs::msg::TransformStamped interpolate_pose(
     const rclcpp::Time & time_des,
     const geometry_msgs::msg::TransformStamped & odom_a,
-    const geometry_msgs::msg::TransformStamped & odom_b,
-    geometry_msgs::msg::TransformStamped & odom_out);
+    const geometry_msgs::msg::TransformStamped & odom_b);
 
   bool interpolate_poses(
     const std::vector<rclcpp::Time> & time_des,
@@ -129,6 +128,14 @@ private:
   bool create_pt_wise_stamp(const sensor_msgs::msg::LaserScan& input_scan,
     std::vector<rclcpp::Time> & stamp_out);
 
+  /**
+   * @brief undistort the LaserScan motion-distortion to pointcloud message, given that
+   * pointwise lidar base poses are present.
+   *
+   * @param input_scan LaserScan suffering from motion-distortion.
+   * @param pointwise_pose vector size must be equal to scan size of input_scan.
+   * @return sensor_msgs::msg::PointCloud2
+   */
   sensor_msgs::msg::PointCloud2 pointwize_alignment(
     const sensor_msgs::msg::LaserScan& input_scan,
     const std::vector<geometry_msgs::msg::TransformStamped>& pointwise_pose);

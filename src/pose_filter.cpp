@@ -28,14 +28,6 @@ laser_filters::PoseFilter::PoseFilter(PoseFilterParams params)
 
 laser_filters::PoseFilter::~PoseFilter() {}
 
-
-// bool laser_filters::PoseFilter::update(
-//   const sensor_msgs::msg::LaserScan& input_scan,
-//   sensor_msgs::msg::LaserScan &output_scan)
-// {
-//   output_scan = input_scan;
-// }
-
 bool laser_filters::PoseFilter::update(
   const sensor_msgs::msg::LaserScan& input_scan,
   sensor_msgs::msg::PointCloud2 &output_scan)
@@ -52,7 +44,7 @@ bool laser_filters::PoseFilter::update(
   if (params_.publish_pose_history_ && !pose_predict.empty()) {
     geometry_msgs::msg::PoseArray pose_history;
 
-    // 취약점
+    // TODO(SangBeom Woo) : 취약점 해결 필요
     pose_history.header.stamp = pose_predict.back().header.stamp;
     pose_history.header.frame_id = "lidar_link";
     for (auto it = pose_predict.begin(); it != pose_predict.end(); it++) {
@@ -106,37 +98,40 @@ bool laser_filters::PoseFilter::create_pt_wise_stamp(const sensor_msgs::msg::Las
 
 sensor_msgs::msg::PointCloud2 laser_filters::PoseFilter::pointwize_alignment(
   const sensor_msgs::msg::LaserScan& input_scan,
-  const std::vector<geometry_msgs::msg::TransformStamped>& pointwise_pose)
+  const std::vector<geometry_msgs::msg::TransformStamped>& pointwise_transform)
 {
-  std::vector<float> scan_container = input_scan.ranges;
+  // a. get laser scan header parameters;
   float angle_min = input_scan.angle_min;
   float angle_increment = input_scan.angle_increment;
-  size_t scan_container_size = scan_container.size();
+  size_t scan_container_size = input_scan.ranges.size();
 
-  pcl::PointCloud<pcl::PointXYZ> pcl_cloud;
+  // b. output conversion interface
+  pcl::PointCloud<pcl::PointXYZI> pcl_cloud; // output pointcloud
+  sensor_msgs::msg::PointCloud2 cloud_out; // output pointcloud message
 
-  sensor_msgs::msg::PointCloud2 cloud_out;
-
-  unsigned int count = 0;
+  // c. convert from LaserScan to motion-distortion-free PointCloud (process 1 to 6)
   for (size_t idx = 0; idx < scan_container_size; idx++) {
-    if (std::isnan(scan_container[idx])) continue;
-    Eigen::Vector3d point(
+    // c - 1. check number value and drop if nan
+    if (std::isnan(input_scan.ranges[idx])) continue;
+    // c - 2. create ray-of-light unit vector from azimuth
+    Eigen::Vector3d point_in(
       std::cos(angle_min + static_cast<float>(idx) * angle_increment),
-      std::sin(angle_min + static_cast<float>(idx) * angle_increment),
-      0.0);
-
-    point *= scan_container[idx];
-
-    auto pose = pointwise_pose[idx];
+      std::sin(angle_min + static_cast<float>(idx) * angle_increment), 0.0);
+    // c - 3. multiply scan-range so that the unit vector become point in pointwize-frame.
+    point_in *= input_scan.ranges[idx];
+    // c - 4. get reference-frame to pointwize-frame.
+    geometry_msgs::msg::TransformStamped transform = pointwise_transform[idx];
     Eigen::Vector3d point_out;
-    tf2::doTransform(point, point_out, pose);
-
-    pcl::PointXYZ pcl_pt;
-    pcl_pt.x = point_out(0); pcl_pt.y = point_out(1); pcl_pt.z = point_out(2);
+    // c - 5. transform the point from pointwize-frame to reference-frame.
+    tf2::doTransform(point_in, point_out, transform);
+    // c - 6. convert eigen to pcl::PointXYZI.
+    pcl::PointXYZI pcl_pt;
+    pcl_pt.x = point_out(0); pcl_pt.y = point_out(1); pcl_pt.z = point_out(2); // point conversion
+    pcl_pt.intensity = input_scan.intensities[idx]; // intensity conversion
     pcl_cloud.push_back(pcl_pt);
   }
 
-  // resize if necessary
+  // d. convert to ROSMsg
   pcl::toROSMsg(pcl_cloud, cloud_out);
   cloud_out.header = input_scan.header;
 
@@ -175,7 +170,6 @@ void laser_filters::PosePredictorBase::add_pose(geometry_msgs::msg::TransformSta
     }
     pose_buff_.insert(it.base(), in);
   }
-
 }
 
 void laser_filters::PosePredictorBase::backpropagate_pose(
@@ -192,6 +186,8 @@ void laser_filters::PosePredictorBase::backpropagate_pose(
 
   // Set the last pose as the reference frame
   const auto& reference_pose = pose_in.back();
+  Eigen::Isometry3d reference_pose_eigen;
+  reference_pose_eigen = tf2::transformToEigen(reference_pose);
 
   // Initialize the output vector with the same size as pose_in
   pose_temp.reserve(pose_in.size());
@@ -199,95 +195,63 @@ void laser_filters::PosePredictorBase::backpropagate_pose(
   // Iterate through each pose in pose_in
   for (size_t i = 0; i < pose_in.size(); ++i) {
     // Calculate the relative transform from the reference pose
-    const auto& current_pose = pose_in[i];
-    geometry_msgs::msg::TransformStamped relative_transform;
+    Eigen::Isometry3d current_pose_eigen;
+    current_pose_eigen = tf2::transformToEigen(pose_in[i]);
 
-    // Calculate relative translation
-    relative_transform.transform.translation.x =
-        current_pose.transform.translation.x - reference_pose.transform.translation.x;
-    relative_transform.transform.translation.y =
-        current_pose.transform.translation.y - reference_pose.transform.translation.y;
-    relative_transform.transform.translation.z =
-        current_pose.transform.translation.z - reference_pose.transform.translation.z;
+    Eigen::Isometry3d relative_transform_eigen =
+      reference_pose_eigen.inverse() * current_pose_eigen;
 
-    // Calculate relative rotation (quaternion difference)
-    tf2::Quaternion q_a, q_b, q_relative;
-    tf2::fromMsg(current_pose.transform.rotation, q_a);
-    tf2::fromMsg(reference_pose.transform.rotation, q_b);
-
-    // Compute the relative rotation quaternion
-    q_relative = q_b.inverse() * q_a;
-
-    // Rotate the relative translation using the relative rotation
-    tf2::Matrix3x3 rotation_matrix(q_b.inverse());
-    tf2::Vector3 rotated_translation = rotation_matrix * tf2::Vector3(
-        relative_transform.transform.translation.x,
-        relative_transform.transform.translation.y,
-        relative_transform.transform.translation.z);
-
-    // Set the rotated translation in relative_transform
-    relative_transform.transform.translation.x = rotated_translation.x();
-    relative_transform.transform.translation.y = rotated_translation.y();
-    relative_transform.transform.translation.z = rotated_translation.z();
-
-    // Convert the relative rotation quaternion back to geometry_msgs format
-    relative_transform.transform.rotation = tf2::toMsg(q_relative);
+    geometry_msgs::msg::TransformStamped relative_transform =
+      tf2::eigenToTransform(relative_transform_eigen);
 
     // Set other fields in relative_transform (e.g., child_frame_id)
-    relative_transform.header.frame_id = pose_in.back().child_frame_id; // Set your desired frame ID
-
+    relative_transform.header.frame_id = pose_in.back().child_frame_id;
     // Store the relative transform in pose_out
     pose_temp.push_back(relative_transform);
   }
+
   // return value
   pose_out = pose_temp;
 }
 
-void laser_filters::PosePredictorBase::interpolate_pose(
+ geometry_msgs::msg::TransformStamped laser_filters::PosePredictorBase::interpolate_pose(
   const rclcpp::Time & time_des,
   const geometry_msgs::msg::TransformStamped & odom_a,
-  const geometry_msgs::msg::TransformStamped & odom_b,
-  geometry_msgs::msg::TransformStamped & odom_out)
+  const geometry_msgs::msg::TransformStamped & odom_b)
 {
-   // Extract relevant data from odom_a and odom_b
+  // a - 1. Extract relevant data from odom_a
   const auto& position_a = odom_a.transform.translation;
-  tf2::Quaternion orientation_a(
-    odom_a.transform.rotation.x,
-    odom_a.transform.rotation.y,
-    odom_a.transform.rotation.z,
-    odom_a.transform.rotation.w);
-
+  tf2::Quaternion orientation_a;
+  tf2::fromMsg(odom_a.transform.rotation, orientation_a); // to use function slerp
   rclcpp::Time time_a = odom_a.header.stamp;
 
+  // a - 2. Extract relevant data from odom_b
   const auto& position_b = odom_b.transform.translation;
-  tf2::Quaternion orientation_b(
-    odom_b.transform.rotation.x,
-    odom_b.transform.rotation.y,
-    odom_b.transform.rotation.z,
-    odom_b.transform.rotation.w);
-
+  tf2::Quaternion orientation_b;
+  tf2::fromMsg(odom_b.transform.rotation, orientation_b); // to use function slerp
   rclcpp::Time time_b = odom_b.header.stamp;
 
-  // Calculate interpolation factor (0 to 1) based on time_des
-  double t_factor = (time_des - time_a).seconds() / (time_b - time_a).seconds();
+  // b. Calculate interpolation factor (0 to 1) based on time_des
+  double ratio = (time_des - time_a).seconds() / (time_b - time_a).seconds();
 
-  // Linearly interpolate position
-  odom_out.transform.translation.x = position_a.x + t_factor * (position_b.x - position_a.x);
-  odom_out.transform.translation.y = position_a.y + t_factor * (position_b.y - position_a.y);
-  odom_out.transform.translation.z = position_a.z + t_factor * (position_b.z - position_a.z);
+  // c. - 1. Linearly interpolate position
+  geometry_msgs::msg::TransformStamped odom_out;
+  geometry_msgs::msg::Vector3 translation;
 
-  // Slerp interpolate orientation (use quaternion slerp)
-  tf2::Quaternion orientation_out = slerp(orientation_a, orientation_b, t_factor);
-  odom_out.transform.rotation.x = orientation_out.getX();
-  odom_out.transform.rotation.y = orientation_out.getY();
-  odom_out.transform.rotation.z = orientation_out.getZ();
-  odom_out.transform.rotation.w = orientation_out.getW();
+  translation.x = position_a.x + ratio * (position_b.x - position_a.x);
+  translation.y = position_a.y + ratio * (position_b.y - position_a.y);
+  translation.z = position_a.z + ratio * (position_b.z - position_a.z);
 
-  // Set other fields in odom_out (e.g., child_frame_id, header.stamp)
+  odom_out.transform.translation = translation;
+
+  // c. - 2.  Slerp interpolate orientation (use quaternion slerp)
+  tf2::Quaternion orientation_out = slerp(orientation_a, orientation_b, ratio);
+  odom_out.transform.rotation = tf2::toMsg(orientation_out);
+
+  // d. Set other fields in odom_out (e.g., child_frame_id, header.stamp)
   odom_out.header.frame_id = odom_b.header.frame_id;
   odom_out.header.stamp = time_des;
-
-  // You can add your implementation here.
+  return odom_out;
 }
 
 bool laser_filters::PosePredictorBase::interpolate_poses(
@@ -316,12 +280,9 @@ bool laser_filters::PosePredictorBase::interpolate_poses(
       if (*tit < pit->header.stamp) { break; }
     }
     if (pit == pose_buff_.end()) { pit--; }
-    geometry_msgs::msg::TransformStamped pose_interpl;
-    interpolate_pose(*tit, *(pit - 1), *pit, pose_interpl);
-    pose_vec.push_back(pose_interpl);
+    pose_vec.push_back(interpolate_pose(*tit, *(pit - 1), *pit));
   }
   pose_out = pose_vec;
-
   return true;
 }
 
