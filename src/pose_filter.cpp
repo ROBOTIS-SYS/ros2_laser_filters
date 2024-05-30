@@ -35,7 +35,6 @@ bool laser_filters::PoseFilter::update(
   std::vector<rclcpp::Time> stamps;
 
   create_pt_wise_stamp(input_scan, stamps);
-  input_scan.time_increment;
 
   std::vector<geometry_msgs::msg::TransformStamped> pose_predict;
 
@@ -94,6 +93,8 @@ bool laser_filters::PoseFilter::create_pt_wise_stamp(const sensor_msgs::msg::Las
   }
 
   stamp_out = stamp_container;
+
+  return true;
 }
 
 sensor_msgs::msg::PointCloud2 laser_filters::PoseFilter::pointwize_alignment(
@@ -124,6 +125,10 @@ sensor_msgs::msg::PointCloud2 laser_filters::PoseFilter::pointwize_alignment(
     Eigen::Vector3d point_out;
     // c - 5. transform the point from pointwize-frame to reference-frame.
     tf2::doTransform(point_in, point_out, transform);
+    // Eigen::Isometry3d temp;
+    // temp = tf2::transformToEigen(transform);
+    // point_out = temp.inverse() * point_in;
+
     // c - 6. convert eigen to pcl::PointXYZI.
     pcl::PointXYZI pcl_pt;
     pcl_pt.x = point_out(0); pcl_pt.y = point_out(1); pcl_pt.z = point_out(2); // point conversion
@@ -278,6 +283,38 @@ bool laser_filters::PosePredictorBase::interpolate_poses(
     auto pit = ++(pose_buff_.begin());
     for(; pit != pose_buff_.end(); pit++) {
       if (*tit < pit->header.stamp) { break; }
+    }
+    if (pit == pose_buff_.end()) { pit--; }
+    pose_vec.push_back(interpolate_pose(*tit, *(pit - 1), *pit));
+  }
+  pose_out = pose_vec;
+  return true;
+}
+
+bool laser_filters::PosePredictorBase::interpolate_poses(
+  const std::vector<builtin_interfaces::msg::Time> & time_des,
+  std::vector<geometry_msgs::msg::TransformStamped> & pose_out)
+{
+  // pose_in의 길이가 2 이하일 경우 예외처리
+  if (time_des.empty() || pose_buff_.empty()) { return false; }
+
+  std::vector<geometry_msgs::msg::TransformStamped> pose_vec; // output container
+  pose_vec.reserve(time_des.size());
+
+  if (pose_buff_.size() < 2) {  // cannot interpolate, need at least two poses
+    for (auto tit = time_des.begin(); tit != time_des.end(); tit++) {
+      geometry_msgs::msg::TransformStamped t_in = pose_buff_.front();
+      t_in.header.stamp = *tit;
+      pose_vec.push_back(t_in);
+    }
+    pose_out = pose_vec;
+    return true;
+  }
+
+  for (auto tit = time_des.begin(); tit != time_des.end(); tit++) {
+    auto pit = ++(pose_buff_.begin());
+    for(; pit != pose_buff_.end(); pit++) {
+      if (rclcpp::Time(*tit) < pit->header.stamp) { break; }
     }
     if (pit == pose_buff_.end()) { pit--; }
     pose_vec.push_back(interpolate_pose(*tit, *(pit - 1), *pit));

@@ -28,6 +28,7 @@
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <builtin_interfaces/msg/time.hpp>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
@@ -84,6 +85,10 @@ public:
 
   bool interpolate_poses(
     const std::vector<rclcpp::Time> & time_des,
+    std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
+
+  bool interpolate_poses(
+    const std::vector<builtin_interfaces::msg::Time> & time_des,
     std::vector<geometry_msgs::msg::TransformStamped> & pose_out);
 
   void pop_buffer(rclcpp::Time latest);

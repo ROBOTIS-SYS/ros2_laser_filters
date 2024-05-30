@@ -18,14 +18,16 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_sensor_msgs REQUIRED)
 find_package(laser_geometry REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(angles REQUIRED)
 
 find_package(Eigen3 REQUIRED)
-find_package(PCL REQUIRED COMPONENTS common io)
+find_package(PCL 1.8 REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
 message(STATUS "PCL: ${PCL_INCLUDE_DIRS}")
@@ -47,7 +49,9 @@ set( dependencies
   rclcpp
   sensor_msgs
   nav_msgs
+  builtin_interfaces
   tf2_ros
+  tf2_sensor_msgs
   pcl_conversions
 )
 
@@ -101,18 +105,18 @@ if (DYNAMIC_TESTING)
     ${dependencies}
   )
 
-  # add_executable(test_pose_filter test/test_pose_filter.cpp src/pose_filter.cpp)
-  # target_compile_options(test_pose_filter PRIVATE -g)
+  add_executable(test_pose_filter test/test_pose_filter.cpp src/pose_filter.cpp)
+  target_compile_options(test_pose_filter PRIVATE -g)
 
-  # # scan_filter_chain
-  # include_directories(test_pose_filter PRIVATE
-  # "include"
-  # ${PCL_INCLUDE_DIRS})
+  # scan_filter_chain
+  include_directories(test_pose_filter PRIVATE
+  "include"
+  ${PCL_INCLUDE_DIRS})
 
-  # target_link_libraries(test_pose_filter ${PCL_LIBRARIES})
-  # ament_target_dependencies(test_pose_filter
-  #   ${dependencies}
-  # )
+  target_link_libraries(test_pose_filter ${PCL_LIBRARIES})
+  ament_target_dependencies(test_pose_filter
+    ${dependencies}
+  )
 endif()
 
 ament_package()
