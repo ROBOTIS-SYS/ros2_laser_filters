@@ -45,9 +45,6 @@
 #include "ros2_laser_filters/box_filter.hpp"
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/create_timer_ros.h>
-#include "tf2_ros/transform_broadcaster.h"
-#include "tf2_ros/transform_listener.h"
-#include "tf2_ros/buffer.h"
 
 laser_filters::LaserScanBoxFilter::LaserScanBoxFilter()
 : tf_node_(new rclcpp::Node("laser_scan_box_filter_tf")),
@@ -128,7 +125,7 @@ bool laser_filters::LaserScanBoxFilter::update(
     std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::duration<float>(input_scan.ranges.size() * input_scan.time_increment)));
 
-  rclcpp::Duration timeout = rclcpp::Duration(1.0);
+  rclcpp::Duration timeout = rclcpp::Duration(1, 0);
 
   auto future = tf_buffer_.waitForTransform(
     box_frame_,
